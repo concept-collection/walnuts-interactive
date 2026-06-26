@@ -4,9 +4,11 @@ Runs in the browser via [numbl](https://numbl.org) — no install.
 
 ## ▶ [Open `walnuts_demo.m`](walnuts_demo.m) and click **Run**
 
-Samples are drawn from a 2D "banana" target by **WALNUTS** (the within-orbit
-adaptive leapfrog No-U-Turn Sampler). The figure shows the target density as a
-heatmap with the samples scattered on top.
+Samples are drawn from a 2D target by **WALNUTS** (the within-orbit adaptive
+leapfrog No-U-Turn Sampler). The figure shows the target density as a heatmap
+with the samples scattered on top. Switch between several targets (banana,
+Gaussian, correlated Gaussian, donut) to see the sampler handle different
+geometries.
 
 WALNUTS is a NUTS variant that adapts the leapfrog step size *within* each
 orbit: each macro-step halves the step (and doubles the count) until the energy
@@ -15,6 +17,7 @@ U-turn.
 
 Controls:
 
+- **Target** — switch the distribution (banana / Gaussian / correlated / donut).
 - **Samples** / **Leapfrog Δt** / **Max error** — change a setting to re-run the
   sampler with it (lower Δt or max error → more, smaller leapfrog steps).
 - **Resample** — a fresh chain with the current settings.
@@ -30,9 +33,9 @@ Controls:
 - `app/` — a single-file React app that draws the density heatmap + samples on a canvas.
 
 The script sends the density grid + samples via `uihtml(..., 'Data', ...)`. The
-controls call back: `sendToMATLAB('resample', {n, dt, maxError})` re-runs the
-chain, and `sendToMATLAB('movie', {dt, maxError})` records a few transitions'
-orbit trajectories (`walnuts(..., record=true)`); the script replies with
+controls call back: `resample` re-runs the chain, `setTarget` switches the
+target (and rebuilds the density), and `movie` records a few transitions' orbit
+trajectories (`walnuts(..., record=true)`); the script replies with
 `sendEventToHTMLSource`.
 
 ## Credits

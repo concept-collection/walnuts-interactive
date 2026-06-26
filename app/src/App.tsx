@@ -17,7 +17,15 @@ interface WalnutsData {
   n: number;
   dt: number;
   maxError: number;
+  target: string;
 }
+
+const TARGETS: { value: string; label: string }[] = [
+  { value: "banana", label: "Banana" },
+  { value: "gaussian", label: "Gaussian" },
+  { value: "correlated", label: "Correlated Gaussian" },
+  { value: "donut", label: "Donut (ring)" },
+];
 
 function isWalnutsData(d: unknown): d is WalnutsData {
   return (
@@ -66,17 +74,31 @@ export function App() {
   const [n, setN] = useState(DEFAULT_N);
   const [dt, setDt] = useState(0.4);
   const [maxError, setMaxError] = useState(0.8);
+  const [target, setTargetState] = useState("banana");
   const [busy, setBusy] = useState(false);
   const [movieData, setMovieData] = useState<MovieStep[] | null>(null);
   const [movie, setMovie] = useState<{ si: number; k: number } | null>(null);
 
+  // Apply a full payload (initial Data, or a `data` event after a target change).
+  const applyData = (d: WalnutsData) => {
+    setData(d);
+    setN(d.n);
+    setDt(d.dt);
+    setMaxError(d.maxError);
+    setTargetState(d.target);
+  };
+
   useEffect(() => {
     const offData = onData(d => {
+      if (isWalnutsData(d)) applyData(d);
+    });
+    // New target: full fresh payload (density + samples).
+    const offFull = onHostEvent("data", d => {
       if (isWalnutsData(d)) {
-        setData(d);
-        setN(d.n);
-        setDt(d.dt);
-        setMaxError(d.maxError);
+        applyData(d);
+        setBusy(false);
+        setMovie(null);
+        setMovieData(null);
       }
     });
     // Resample: same target, new draws.
@@ -102,6 +124,7 @@ export function App() {
     });
     return () => {
       offData();
+      offFull();
       offSamples();
       offMovie();
     };
@@ -132,7 +155,17 @@ export function App() {
     if (!data || busy) return;
     stopMovie();
     setBusy(true);
-    sendToMATLAB("resample", { n: count, dt: step, maxError: err });
+    sendToMATLAB("resample", { n: count, dt: step, maxError: err, target });
+  };
+
+  // Switch the target: the script rebuilds the density + draws and replies with
+  // a full `data` event.
+  const changeTarget = (value: string) => {
+    setTargetState(value);
+    if (!data) return;
+    stopMovie();
+    setBusy(true);
+    sendToMATLAB("setTarget", { target: value, n, dt, maxError });
   };
 
   const playMovie = () => {
@@ -142,7 +175,7 @@ export function App() {
     }
     if (!data || busy) return;
     setBusy(true); // until the trajectory arrives
-    sendToMATLAB("movie", { dt, maxError });
+    sendToMATLAB("movie", { dt, maxError, target });
   };
 
   // ── derive the movie overlay for the current frame ──
@@ -194,10 +227,23 @@ export function App() {
       )}
 
       <div style={panelStyle}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>WALNUTS</div>
-        <div style={{ fontSize: 11, color: "#475569", marginBottom: 8 }}>
-          sampling a banana target
-        </div>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>WALNUTS</div>
+
+        <label style={labelStyle}>
+          Target
+          <select
+            value={target}
+            disabled={controlsDisabled}
+            onChange={e => changeTarget(e.target.value)}
+            style={selectStyle}
+          >
+            {TARGETS.map(t => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <label style={labelStyle}>
           Samples: <b>{n.toLocaleString()}</b>
@@ -312,6 +358,13 @@ const labelStyle: CSSProperties = {
 const sliderStyle: CSSProperties = {
   width: "100%",
   marginTop: 2,
+};
+
+const selectStyle: CSSProperties = {
+  width: "100%",
+  marginTop: 2,
+  fontSize: 11,
+  padding: "2px 4px",
 };
 
 const btnStyle: CSSProperties = {
