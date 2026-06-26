@@ -1,0 +1,12 @@
+# Files NOT to bundle into the deployed numbl project. Only the built
+# single-file app (app/dist/index.html) is needed at runtime — exclude the web
+# app's source and config. (node_modules, .git, .github, and agent instruction
+# files like CLAUDE.md are excluded by default.)
+.gitignore
+app/.gitignore
+app/src
+app/index.html
+app/package.json
+app/package-lock.json
+app/tsconfig.json
+app/vite.config.ts

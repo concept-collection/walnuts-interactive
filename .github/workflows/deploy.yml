@@ -1,0 +1,61 @@
+name: Deploy numbl project to GitHub Pages
+
+# Builds the single-file web app, bundles this numbl project with the browser
+# IDE, and publishes it to GitHub Pages on every push to main.
+#
+# One-time setup: Settings → Pages → "Build and deployment" → Source →
+# "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      # Build the single-file figure app (app/dist/index.html) that
+      # walnuts_sampler.m loads via uihtml. build-site then bundles
+      # app/dist/index.html into the project (the rest of app/ is excluded via
+      # .numblignore).
+      - name: Build figure app
+        run: |
+          cd app
+          npm ci
+          npm run build
+
+      - uses: flatironinstitute/numbl/.github/actions/build-site@main
+        with:
+          project-dir: .
+          # Build numbl from the main branch (development version, which includes
+          # the uihtml two-way data/event bridge) rather than the npm release.
+          numbl-ref: main
+          # Keep the (mostly empty) output panel small so the interactive figure
+          # panel below it gets most of the height on first load.
+          max-initial-output-panel-height: 100
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
