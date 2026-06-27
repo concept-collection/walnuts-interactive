@@ -19,42 +19,46 @@ function file). Run `walnuts_demo.m`, not the sampler directly.
 - **MATLAB → figure:** `uihtml(..., 'Data', struct)` / `sendEventToHTMLSource(src, name, data)`.
 - **Figure → MATLAB:** `sendToMATLAB(name, value)` (see `app/src/bridge.ts`), received via `HTMLEventReceivedFcn`.
 
-The script sends the density grid + samples once, then handles two requests
+The script sends the density grid + samples once, then handles three requests
 (`walnuts_sampler.m` `on_event`):
 
-- `resample` `{n, dt, maxError}` → fresh chain → `samples` event. (Target is
-  fixed, so the density is not re-sent.)
-- `movie` `{dt, maxError}` → `walnuts(..., record=true)` for a few transitions →
-  `movie` event carrying their orbit trajectories.
+- `resample` `{n, h, delta, target}` → fresh chain → `samples` event.
+- `setTarget` `{target, …}` → new target → full `data` event (density + samples).
+- `movie` `{h, delta, target}` → record a few transitions' orbits → `movie` event.
 
-The figure's controls (samples / Δt / max error sliders, Resample) drive
-`resample`; the **▶ Movie** button drives `movie` and animates the returned
-orbits (`App.tsx` + `DensityView.tsx`).
+The figure's controls (target dropdown, samples / step `h` / energy-tol `δ`
+sliders, Resample) drive `resample`/`setTarget`; the **▶ Movie** button drives
+`movie` and animates the returned orbits (`App.tsx` + `DensityView.tsx`).
 
 ### Trajectory recording
 
-`walnuts.m` records the orbit path only when called with `record=true`, via
-globals (`WREC_*`): `macro_step` appends each *committed* macro-step's leapfrog
-path (recomputed by `leapfrog_capture`), tagged with a segment id so the figure
-breaks the polyline at orbit direction flips. Plain sampling (`record=false`)
-takes the fast path with no recording overhead.
+`walnuts.m` exposes the orbit it built as a third output `O` (a cell of
+`{theta, rho}` states) — purely for the movie; it doesn't affect the algorithm.
+`record_movie` (in `walnuts_sampler.m`) runs a few transitions, pulls each
+orbit's positions, and packs `px/py/seg` + the start and selected draw.
 
 ## The algorithm
 
-`helpers/walnuts.m` is a direct port of Brian Ward's `algorithms/WALNUTS.js`
-from chi-feng/mcmc-demo (based on Bob Carpenter's C++,
-flatironinstitute/walnuts; paper arXiv:2506.18746). Spans carry both orbit
-endpoints; `macro_step` does the within-orbit step halving; `build_span`
-recurses (NUTS doubling); selection is Barker within sub-orbits, Metropolis at
-the top. See README for full credits.
+`helpers/walnuts.m` and its building blocks (`extend_orbit_forward/backward`,
+`micro`, `leapfrog`, `u_turn`/`sub_u_turn`, `p_micro`/`pmf_p_micro`) are **Nawaf
+Bou-Rabee's reference MATLAB implementation**, used as provided (paper
+arXiv:2506.18746). It's the orbit-based formulation: sample momentum, grow the
+orbit by doubling forward/backward, refine the leapfrog step within each step so
+the energy variation ≤ `δ`, terminate on a U-turn, and pick a draw from the
+orbit by its `log_softmax` weights. We added only `logsumexp`/`log_softmax`
+(standard helpers it calls) and a third output `O` on `walnuts` for the movie.
+`walnuts` takes the density as **function handles** (`@log_density`,
+`@grad_log_density`), which dispatch on the global `WTARGET` — keep the algorithm
+files target-agnostic. The verbatim originals + paper are in `missing_files/`
+(git-ignored).
 
 ## Performance
 
-Unlike the hitandrun kernel, WALNUTS uses **recursion + structs**, so it runs in
-the numbl **interpreter** (it does not JS-JIT like a flat numeric loop). It's
-still fine — banana orbits are shallow, ~1–2 ms/transition — so keep `N` modest
-(the demo uses 1000 + 200 burn-in). Don't add a `%!numbl:assert_jit` guard here;
-it would (correctly) fail.
+WALNUTS here uses **function-handle args, 2-D cell arrays, and recursion**, so it
+runs in the numbl **interpreter** (it does not JS-JIT). It's still fine —
+~1–5 ms/transition on these 2-D targets — but heavier than a flat loop, so keep
+`N` modest (`SAMPLE_CHOICES` tops out at 3000; the demo uses 1000 + 200 burn-in).
+Don't add a `%!numbl:assert_jit` guard; it would (correctly) fail.
 
 ## Key files
 
@@ -63,9 +67,9 @@ it would (correctly) fail.
 | `app/src/App.tsx` | Reads data, hosts the info panel |
 | `app/src/render/DensityView.tsx` | Canvas: density heatmap + sample scatter |
 | `app/src/bridge.ts` | `onData` / `onHostEvent` / `sendToMATLAB` (generic) |
-| `helpers/walnuts.m` | The WALNUTS sampler |
-| `helpers/log_density.m` / `grad_log_density.m` | Banana target |
-| `walnuts_sampler.m` | Runs the chain, builds the density grid, opens the figure |
+| `helpers/walnuts.m` + building blocks | Nawaf's reference WALNUTS sampler |
+| `helpers/log_density.m` / `grad_log_density.m` | 2D targets (banana/gaussian/correlated/donut), dispatched on global `WTARGET` |
+| `walnuts_sampler.m` | Loops `walnuts(...)`, builds the density grid, opens the figure, handles events |
 | `walnuts_demo.m` | Driver: addpath + seed + call the sampler |
 
 ## Local iteration

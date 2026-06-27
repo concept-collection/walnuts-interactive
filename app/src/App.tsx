@@ -9,14 +9,15 @@ import {
 import { onData, onHostEvent, sendToMATLAB } from "./bridge.js";
 
 /** Payload from the numbl script: the target density (for the heatmap) plus the
- *  WALNUTS samples. Mirrors what walnuts_sampler.m sends. */
+ *  WALNUTS samples. Mirrors what walnuts_sampler.m sends. `h` is the leapfrog
+ *  step and `delta` the energy-variation tolerance for within-orbit refinement. */
 interface WalnutsData {
   type: "walnuts";
   density: DensityGrid;
   samples: Points;
   n: number;
-  dt: number;
-  maxError: number;
+  h: number;
+  delta: number;
   target: string;
 }
 
@@ -41,11 +42,11 @@ interface SamplesEvent {
   x: number[];
   y: number[];
   n: number;
-  dt: number;
-  maxError: number;
+  h: number;
+  delta: number;
 }
 
-/** One recorded transition's orbit (from `walnuts(..., record=true)`). */
+/** One recorded transition's orbit (from `walnuts(...)`'s orbit output). */
 interface MovieStep {
   px: number[];
   py: number[];
@@ -56,14 +57,18 @@ interface MovieStep {
   selY: number;
 }
 
+// WALNUTS' orbit-based transition is heavier than a plain MH step, so keep the
+// sample counts modest.
 const SAMPLE_CHOICES = [100, 300, 1000, 3000];
 const DEFAULT_N = 1000;
-const DT_MIN = 0.05;
-const DT_MAX = 1.2;
-const ERR_MIN = 0.1;
-const ERR_MAX = 4;
+const DEFAULT_H = 0.8;
+const DEFAULT_DELTA = Math.log(1 / 0.66); // ≈ 0.42 (Nawaf's amin = 0.66)
+const H_MIN = 0.1;
+const H_MAX = 2.0;
+const DELTA_MIN = 0.1;
+const DELTA_MAX = 2.0;
 
-// Movie pacing: reveal a couple of leapfrog points per tick, then linger on the
+// Movie pacing: reveal a couple of orbit points per tick, then linger on the
 // selected draw before the next transition.
 const MOVIE_TICK_MS = 55;
 const MOVIE_REVEAL = 2;
@@ -72,8 +77,8 @@ const MOVIE_HOLD = 14; // extra k-units to hold the selected point
 export function App() {
   const [data, setData] = useState<WalnutsData | null>(null);
   const [n, setN] = useState(DEFAULT_N);
-  const [dt, setDt] = useState(0.4);
-  const [maxError, setMaxError] = useState(0.8);
+  const [h, setH] = useState(DEFAULT_H);
+  const [delta, setDelta] = useState(DEFAULT_DELTA);
   const [target, setTargetState] = useState("banana");
   const [busy, setBusy] = useState(false);
   const [movieData, setMovieData] = useState<MovieStep[] | null>(null);
@@ -83,8 +88,8 @@ export function App() {
   const applyData = (d: WalnutsData) => {
     setData(d);
     setN(d.n);
-    setDt(d.dt);
-    setMaxError(d.maxError);
+    setH(d.h);
+    setDelta(d.delta);
     setTargetState(d.target);
   };
 
@@ -107,7 +112,7 @@ export function App() {
       if (!s || !Array.isArray(s.x)) return;
       setData(prev =>
         prev
-          ? { ...prev, samples: { x: s.x, y: s.y }, n: s.n, dt: s.dt, maxError: s.maxError }
+          ? { ...prev, samples: { x: s.x, y: s.y }, n: s.n, h: s.h, delta: s.delta }
           : prev
       );
       setBusy(false);
@@ -151,11 +156,11 @@ export function App() {
     setMovieData(null);
   };
 
-  const resample = (count: number, step: number, err: number) => {
+  const resample = (count: number, hVal: number, deltaVal: number) => {
     if (!data || busy) return;
     stopMovie();
     setBusy(true);
-    sendToMATLAB("resample", { n: count, dt: step, maxError: err, target });
+    sendToMATLAB("resample", { n: count, h: hVal, delta: deltaVal, target });
   };
 
   // Switch the target: the script rebuilds the density + draws and replies with
@@ -165,7 +170,7 @@ export function App() {
     if (!data) return;
     stopMovie();
     setBusy(true);
-    sendToMATLAB("setTarget", { target: value, n, dt, maxError });
+    sendToMATLAB("setTarget", { target: value, n, h, delta });
   };
 
   const playMovie = () => {
@@ -175,7 +180,7 @@ export function App() {
     }
     if (!data || busy) return;
     setBusy(true); // until the trajectory arrives
-    sendToMATLAB("movie", { dt, maxError, target });
+    sendToMATLAB("movie", { h, delta, target });
   };
 
   // ── derive the movie overlay for the current frame ──
@@ -256,38 +261,38 @@ export function App() {
             disabled={controlsDisabled}
             onChange={e => setN(SAMPLE_CHOICES[Number(e.target.value)])}
             onPointerUp={e =>
-              resample(SAMPLE_CHOICES[Number(e.currentTarget.value)], dt, maxError)
+              resample(SAMPLE_CHOICES[Number(e.currentTarget.value)], h, delta)
             }
             style={sliderStyle}
           />
         </label>
 
         <label style={labelStyle}>
-          Leapfrog Δt: <b>{dt.toFixed(2)}</b>
+          Step h: <b>{h.toFixed(2)}</b>
           <input
             type="range"
-            min={DT_MIN}
-            max={DT_MAX}
+            min={H_MIN}
+            max={H_MAX}
             step={0.05}
-            value={dt}
+            value={h}
             disabled={controlsDisabled}
-            onChange={e => setDt(Number(e.target.value))}
-            onPointerUp={e => resample(n, Number(e.currentTarget.value), maxError)}
+            onChange={e => setH(Number(e.target.value))}
+            onPointerUp={e => resample(n, Number(e.currentTarget.value), delta)}
             style={sliderStyle}
           />
         </label>
 
         <label style={labelStyle}>
-          Max error: <b>{maxError.toFixed(2)}</b>
+          Energy tol δ: <b>{delta.toFixed(2)}</b>
           <input
             type="range"
-            min={ERR_MIN}
-            max={ERR_MAX}
-            step={0.1}
-            value={maxError}
+            min={DELTA_MIN}
+            max={DELTA_MAX}
+            step={0.05}
+            value={delta}
             disabled={controlsDisabled}
-            onChange={e => setMaxError(Number(e.target.value))}
-            onPointerUp={e => resample(n, dt, Number(e.currentTarget.value))}
+            onChange={e => setDelta(Number(e.target.value))}
+            onPointerUp={e => resample(n, h, Number(e.currentTarget.value))}
             style={sliderStyle}
           />
         </label>
@@ -296,7 +301,7 @@ export function App() {
           <button
             style={btnStyle}
             disabled={controlsDisabled}
-            onClick={() => resample(n, dt, maxError)}
+            onClick={() => resample(n, h, delta)}
             title="Draw a fresh chain with these settings"
           >
             Resample
