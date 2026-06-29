@@ -82,7 +82,7 @@ function traj = record_movie(h, delta, target)
 % for the step-by-step movie: px/py are the orbit positions, seg keeps them one
 % polyline, startX/Y is where the transition began, selX/Y the selected draw.
 i_max = 10;
-n_steps = 12;
+n_steps = 40;
 theta = target_start(target);
 traj = {};
 for s = 1:n_steps
