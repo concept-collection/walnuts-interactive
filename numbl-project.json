@@ -1,4 +1,11 @@
 {
   "title": "Interactive WALNUTS sampling",
-  "entry": "README.md"
+  "entry": "README.md",
+  "figures": [
+    {
+      "id": "sampler",
+      "name": "WALNUTS sampler",
+      "entry": "walnuts_demo.m"
+    }
+  ]
 }

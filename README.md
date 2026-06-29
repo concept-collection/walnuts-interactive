@@ -2,6 +2,12 @@
 
 Runs in the browser via [numbl](https://numbl.org) — no install.
 
+## 🎛 [Just the figure →](https://concept-collection.github.io/walnuts-interactive/#figure/sampler)
+
+The figure-only view runs the sampler and drops you straight into the
+interactive figure (it shows the run's output first, then the figure). The full
+developer view — file tree, editable code, console — is below.
+
 ## ▶ [Open `walnuts_demo.m`](walnuts_demo.m) and click **Run**
 
 Samples are drawn from a 2D target by **WALNUTS** (the within-orbit adaptive
